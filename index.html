@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=no">
+    <title>Интерактивная Карта Мира — Атака Титанов (Shingeki no Kyojin)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        aot: {
+                            bg: '#080604',
+                            panel: '#15100b',
+                            panelBorder: '#3d2e1e',
+                            gold: '#dfb75c',
+                            goldLight: '#f6e7c1',
+                            bronze: '#9c7b4f',
+                            crimson: '#800c0c',
+                            redPulse: '#ff3d3d',
+                            scout: '#1b3b27'
+                        }
+                    },
+                    fontFamily: {
+                        title: ['Cinzel', 'serif'],
+                        sans: ['Montserrat', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #080604;
+            color: #f6e7c1;
+            font-family: 'Montserrat', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+        }
+
+        .glass-panel {
+            background: rgba(21, 16, 11, 0.94);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(223, 183, 92, 0.3);
+            box-shadow: 0 12px 36px rgba(0, 0, 0, 0.95);
+        }
+
+        #viewport-container {
+            width: 100%;
+            height: 100%;
+            cursor: grab;
+            touch-action: none;
+            background: #060403;
+        }
+
+        #viewport-container:active {
+            cursor: grabbing;
+        }
+
+        /* Fixed SVG Pin Visuals */
+        .pin-group {
+            cursor: pointer;
+        }
+
+        .pulse-ring {
+            animation: ringFade 2s infinite ease-out;
+            transform-origin: center;
+        }
+
+        @keyframes ringFade {
+            0% { r: 6px; opacity: 0.95; stroke-width: 2.5px; }
+            100% { r: 26px; opacity: 0; stroke-width: 0.5px; }
+        }
+
+        .map-label {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 11px;
+            font-weight: 700;
+            fill: #ffffff;
+            text-shadow: 0 2px 5px rgba(0,0,0,0.95), 0 0 8px rgba(0,0,0,0.9);
+            pointer-events: none;
+        }
+
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: rgba(8, 6, 4, 0.9); }
+        ::-webkit-scrollbar-thumb { background: #9c7b4f; border-radius: 2px; }
+    </style>
+</head>
+<body class="relative flex flex-col w-full h-full">
+
+    <header class="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-3 py-2.5 sm:px-5 sm:py-3 glass-panel border-b border-aot-gold/30">
+        <div class="flex items-center space-x-2.5">
+            <div class="p-1.5 sm:p-2 bg-aot-crimson/60 border border-aot-gold/60 rounded-lg text-aot-gold">
+                <i data-lucide="map" class="w-5 h-5"></i>
+            </div>
+            <div>
+                <h1 class="font-title font-black text-sm sm:text-lg text-aot-gold tracking-wide uppercase flex items-center gap-2">
+                    Атака Титанов <span class="text-[9px] font-sans font-normal px-1.5 py-0.5 bg-aot-crimson/50 border border-aot-crimson/80 rounded text-aot-goldLight hidden sm:inline-block">Мировая Карта</span>
+                </h1>
+                <p class="text-[10px] text-aot-bronze hidden md:block">География вселенной Hajime Isayama & Эпопея Гула Земли</p>
+            </div>
+        </div>
+
+        <!-- Live Search Bar -->
+        <div class="relative w-36 sm:w-64 md:w-80">
+            <i data-lucide="search" class="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-aot-bronze"></i>
+            <input type="text" id="search-input" placeholder="Поиск (Форт Сальта, Одиха...)" 
+                class="w-full pl-8 pr-3 py-1 sm:py-1.5 bg-aot-bg/90 border border-aot-bronze/60 rounded-lg text-xs text-aot-goldLight placeholder-aot-bronze/70 focus:outline-none focus:border-aot-gold transition">
+            <div id="search-results" class="absolute left-0 right-0 top-full mt-1 glass-panel rounded-lg max-h-60 overflow-y-auto hidden z-50"></div>
+        </div>
+
+        <!-- Audio Sound SFX Toggle -->
+        <button id="btn-toggle-sfx" class="p-2 bg-aot-panel hover:bg-aot-gold/20 border border-aot-gold/40 rounded-lg text-aot-gold transition" title="Включить/Выключить звуки">
+            <i data-lucide="volume-2" id="sfx-icon" class="w-4 h-4"></i>
+        </button>
+    </header>
+
+    <main id="viewport-container" class="relative flex-1 w-full h-full overflow-hidden">
+        
+        <!-- Canvas for Dynamic Rumbling Particles & Magma Shockwaves -->
+        <canvas id="rumbling-canvas" class="absolute inset-0 pointer-events-none z-10 opacity-80"></canvas>
+
+        <svg id="aot-svg" class="w-full h-full select-none" viewBox="0 0 1200 1520" preserveAspectRatio="xMidYMid meet">
+            <g id="viewport-group">
+                <!-- Map Background Water -->
+                <rect width="1200" height="1520" fill="#0d0a07" />
+                <path d="M0,0 L1200,0 L1200,1520 L0,1520 Z" fill="#0f0c08" />
+                
+                <!-- Uncharted Western Americas -->
+                <path d="M 40 120 Q 130 180 110 380 T 90 780 T 160 1080 Q 190 1280 40 1440 L 0 1520 L 0 0 Z" fill="#201811" stroke="#3d2f21" stroke-width="2" />
+                
+                <!-- Marley Empire Mainland (Central Africa/Europe Inverted) -->
+                <path d="M 340 190 Q 510 170 610 230 Q 670 290 610 390 Q 570 490 530 640 Q 490 790 410 890 Q 310 840 290 690 Q 270 540 340 390 Z" fill="#291e14" stroke="#523d29" stroke-width="2" />
+                
+                <!-- Mid-East Alliance Peninsula -->
+                <path d="M 610 270 Q 740 240 810 310 Q 840 410 770 490 Q 690 470 620 390 Z" fill="#231a11" stroke="#423222" stroke-width="2" />
+
+                <!-- Hizuru Archipelago -->
+                <path d="M 870 170 Q 930 150 970 210 Q 940 290 880 310 Q 840 240 870 170 Z" fill="#201811" stroke="#3d2f21" stroke-width="2" />
+
+                <!-- Paradis Island (Inverted Madagascar) -->
+                <path d="M 530 70 Q 590 50 620 100 Q 610 190 570 240 Q 510 210 530 70 Z" fill="#38291c" stroke="#dfb75c" stroke-width="2.5" />
+
+                <!-- Paradis Island Inset Frame -->
+                <rect x="50" y="1020" width="420" height="420" rx="14" fill="#15100b" stroke="#dfb75c" stroke-width="2" />
+                <text x="260" y="1050" text-anchor="middle" font-family="Cinzel" font-size="15" font-weight="bold" fill="#dfb75c">PARADIS ISLAND (WALLS)</text>
+
+                <!-- Concentric Walls in Inset -->
+                <circle cx="260" cy="1230" r="160" fill="none" stroke="#800c0c" stroke-width="2" stroke-dasharray="4,3" />
+                <circle cx="260" cy="1230" r="110" fill="none" stroke="#dfb75c" stroke-width="2" stroke-dasharray="4,3" />
+                <circle cx="260" cy="1230" r="60" fill="none" stroke="#f6e7c1" stroke-width="2.5" />
+
+                <!-- Labels -->
+                <text x="575" y="140" font-family="Cinzel" font-size="16" font-weight="bold" fill="#dfb75c" text-anchor="middle">PARADIS ISLAND (ELDIA)</text>
+                <text x="440" y="470" font-family="Cinzel" font-size="20" font-weight="bold" fill="#9c7b4f" text-anchor="middle">MARLEYAN EMPIRE</text>
+                <text x="720" y="370" font-family="Cinzel" font-size="13" font-weight="bold" fill="#9c7b4f" text-anchor="middle">MID-EAST ALLIANCE</text>
+                <text x="910" y="230" font-family="Cinzel" font-size="13" font-weight="bold" fill="#9c7b4f" text-anchor="middle">HIZURU</text>
+
+                <!-- SVG Layer for Markers -->
+                <g id="markers-layer"></g>
+            </g>
+        </svg>
+
+        <div class="absolute top-14 left-2 sm:top-16 sm:left-3 z-20 flex flex-wrap gap-1.5 max-w-[300px] sm:max-w-md">
+            <button class="quick-preset-btn px-2.5 py-1 bg-aot-panel/90 hover:bg-aot-gold/20 border border-aot-bronze/50 rounded-full text-[11px] text-aot-goldLight backdrop-blur transition active:scale-95" data-preset="world">
+                🌍 Весь Мир
+            </button>
+            <button class="quick-preset-btn px-2.5 py-1 bg-aot-panel/90 hover:bg-aot-gold/20 border border-aot-bronze/50 rounded-full text-[11px] text-aot-goldLight backdrop-blur transition active:scale-95" data-preset="paradis">
+                🏝️ Парадиз
+            </button>
+            <button class="quick-preset-btn px-2.5 py-1 bg-aot-panel/90 hover:bg-aot-gold/20 border border-aot-bronze/50 rounded-full text-[11px] text-aot-goldLight backdrop-blur transition active:scale-95" data-preset="walls">
+                🏰 Стены и Округа
+            </button>
+            <button class="quick-preset-btn px-2.5 py-1 bg-aot-panel/90 hover:bg-aot-gold/20 border border-aot-bronze/50 rounded-full text-[11px] text-aot-goldLight backdrop-blur transition active:scale-95" data-preset="marley">
+                🦅 Марлия
+            </button>
+            <button id="btn-toggle-rumbling" class="px-3 py-1 bg-aot-crimson hover:bg-red-700 border border-aot-redPulse rounded-full text-[11px] text-aot-goldLight font-bold backdrop-blur transition active:scale-95 flex items-center gap-1 shadow-lg shadow-red-900/40">
+                <i data-lucide="flame" class="w-3.5 h-3.5 text-aot-redPulse"></i>
+                <span id="rumbling-btn-text">🔥 Активировать Гул Земли</span>
+            </button>
+        </div>
+
+        <!-- Zoom Floating Controls -->
+        <div class="absolute bottom-6 right-3 sm:bottom-8 sm:right-5 flex flex-col space-y-2 z-20">
+            <button id="btn-zoom-in" class="w-10 h-10 glass-panel hover:bg-aot-gold/20 rounded-lg flex items-center justify-center text-aot-gold transition active:scale-95">
+                <i data-lucide="plus" class="w-5 h-5"></i>
+            </button>
+            <button id="btn-zoom-out" class="w-10 h-10 glass-panel hover:bg-aot-gold/20 rounded-lg flex items-center justify-center text-aot-gold transition active:scale-95">
+                <i data-lucide="minus" class="w-5 h-5"></i>
+            </button>
+            <button id="btn-reset" class="w-10 h-10 glass-panel hover:bg-aot-gold/20 rounded-lg flex items-center justify-center text-aot-gold transition active:scale-95">
+                <i data-lucide="rotate-ccw" class="w-5 h-5"></i>
+            </button>
+        </div>
+
+        <!-- Rumbling Globe Eradication Counter HUD -->
+        <div id="rumbling-hud" class="absolute bottom-6 left-3 sm:bottom-8 sm:left-5 z-20 glass-panel p-3 rounded-xl border border-aot-redPulse/60 hidden max-w-xs">
+            <div class="flex items-center justify-between gap-3">
+                <span class="text-[10px] font-title font-bold text-aot-gold uppercase">Уничтожение Суши</span>
+                <span id="rumbling-percent" class="text-sm font-black text-aot-redPulse">0.0%</span>
+            </div>
+            <div class="w-full h-1.5 bg-aot-bg rounded-full mt-1.5 overflow-hidden border border-aot-redPulse/30">
+                <div id="rumbling-progress-bar" class="h-full bg-gradient-to-r from-yellow-500 via-red-600 to-red-800 w-0 transition-all duration-300"></div>
+            </div>
+        </div>
+    </main>
+
+    <aside id="sidebar" class="fixed top-0 right-0 h-full w-full sm:w-[420px] glass-panel z-50 transform translate-x-full transition-transform duration-300 ease-in-out flex flex-col border-l border-aot-gold/40 shadow-2xl">
+        <div class="p-4 border-b border-aot-gold/20 flex items-center justify-between bg-aot-bg/90">
+            <span id="sidebar-badge" class="px-2.5 py-0.5 text-[10px] uppercase font-bold rounded bg-aot-gold/20 text-aot-gold border border-aot-gold/40">
+                Локация
+            </span>
+            <button id="btn-close-sidebar" class="p-1.5 rounded-lg text-aot-bronze hover:text-aot-goldLight transition">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto p-4 space-y-4">
+            <div>
+                <h2 id="sidebar-title" class="text-xl sm:text-2xl font-title font-bold text-aot-gold">Форт Сальта</h2>
+                <p id="sidebar-faction" class="text-xs text-aot-bronze mt-0.5">Военный объект Марлии</p>
+            </div>
+
+            <div class="space-y-1">
+                <h3 class="text-xs font-title font-bold uppercase text-aot-gold flex items-center gap-1.5">
+                    <i data-lucide="book-open" class="w-4 h-4 text-aot-bronze"></i> Описание
+                </h3>
+                <p id="sidebar-desc" class="text-xs text-aot-goldLight leading-relaxed"></p>
+            </div>
+
+            <div id="sidebar-rumbling-container" class="p-3 bg-aot-crimson/30 border border-aot-redPulse/60 rounded-xl space-y-1">
+                <h4 class="text-xs font-title font-bold text-aot-gold flex items-center gap-1.5">
+                    <i data-lucide="flame" class="w-4 h-4 text-aot-redPulse"></i> Событие в Финале Гула Земли
+                </h4>
+                <p id="sidebar-rumbling-text" class="text-xs text-aot-goldLight leading-relaxed"></p>
+            </div>
+
+            <!-- Involved Titan Shifters -->
+            <div id="sidebar-titans-container" class="space-y-1.5">
+                <h3 class="text-xs font-title font-bold uppercase text-aot-gold flex items-center gap-1.5">
+                    <i data-lucide="shield-alert" class="w-4 h-4 text-aot-gold"></i> Девять Титанов в Локации
+                </h3>
+                <div id="sidebar-titans" class="flex flex-wrap gap-1.5"></div>
+            </div>
+
+            <div class="space-y-2">
+                <h3 class="text-xs font-title font-bold uppercase text-aot-gold flex items-center gap-1.5">
+                    <i data-lucide="users" class="w-4 h-4 text-aot-gold"></i> Ключевые Персонажи
+                </h3>
+                <div id="sidebar-chars" class="flex flex-wrap gap-1.5"></div>
+            </div>
+        </div>
+
+        <div class="p-3 border-t border-aot-gold/20 bg-aot-bg/90">
+            <button id="btn-focus-location" class="w-full py-2.5 bg-aot-gold/20 hover:bg-aot-gold/30 border border-aot-gold/50 rounded-lg text-xs font-title font-bold text-aot-gold transition flex items-center justify-center gap-2">
+                <i data-lucide="crosshair" class="w-4 h-4"></i> Сфокусировать на карте
+            </button>
+        </div>
+    </aside>
+
+    <script>
+        // Web Audio API Synthesizer for Native SFX without external downloads
+        class AoTAudioEngine {
+            constructor() {
+                this.ctx = null;
+                this.enabled = true;
+            }
+
+            init() {
+                if (!this.ctx) {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+            }
+
+            playClick() {
+                if (!this.enabled) return;
+                this.init();
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(600, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(200, this.ctx.currentTime + 0.08);
+                gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.08);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.08);
+            }
+
+            playBlade() {
+                if (!this.enabled) return;
+                this.init();
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(1200, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(300, this.ctx.currentTime + 0.2);
+                gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.2);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.2);
+            }
+
+            playRumblingThud() {
+                if (!this.enabled) return;
+                this.init();
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(80, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(20, this.ctx.currentTime + 0.6);
+                gain.gain.setValueAtTime(0.4, this.ctx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.6);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.6);
+            }
+        }
+
+        const sfx = new AoTAudioEngine();
+
+        // Comprehensive Canonical Locations Database
+        const AOT_LOCATIONS = [
+            // --- RUMBLING FINALE SCENES ---
+            {
+                id: "fort-salta",
+                name: "Форт Сальта (Salta)",
+                category: "rumbling",
+                isRumbling: true,
+                coords: { x: 410, y: 700 },
+                faction: "Южная Высокогорная База Марлии",
+                desc: "Высокогорное плато и последняя база дирижаблей. Финальный рубеж человечества против Гула Земли.",
+                rumbling: "ЭПИЦЕНТР ФИНАЛА! Здесь Разведкорпус высадился на кости Эрена. Микаса отсекла голову Эрену внутри пасти Прародителя.",
+                titans: ["Прародитель", "Атакующий", "Бронированный", "Зубастый", "Челюсть", "Женская Особь", "Грузовой"],
+                chars: ["Микаса", "Эрен", "Армин", "Леви", "Райнер", "Пик", "Фалко"]
+            },
+            {
+                id: "cliff-death",
+                name: "Утёс Падения (Сцена с младенцем)",
+                category: "rumbling",
+                isRumbling: true,
+                coords: { x: 370, y: 780 },
+                faction: "Прибрежный обрыв Марлии",
+                desc: "Гигантский отвесный утёс над океаном, куда Колоссы загнали беженцев.",
+                rumbling: "Знаменитый 1-секундный момент финала: толпа передавала младенца назад от пропасти, пыталась спасти хоть одну жизнь.",
+                titans: ["Колоссальные Титаны Гула"],
+                chars: ["Беженцы Марлии", "Младенец"]
+            },
+            {
+                id: "port-odiha",
+                name: "Порт Одиха (Odiha)",
+                category: "cities",
+                isRumbling: true,
+                coords: { x: 540, y: 620 },
+                faction: "Южный Порт Марлии",
+                desc: "Портовый город, где готовили гидросамолет для вылета к Форту Сальта.",
+                rumbling: "Место подвига Ханджи Зоэ. Она уничтожила нескольких Колоссов в одиночку, давая самолету подняться в воздух.",
+    
